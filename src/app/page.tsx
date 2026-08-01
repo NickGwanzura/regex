@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Card, CTA, PageHeader, ServiceRow, Step } from "@/components/marketing";
+import { HeroSlider } from "@/components/hero-slider";
 
 const services = [
   ["Wireless range extension and infrastructure", "Precision RF signal mapping and high density access points for seamless roaming across large residential, commercial or industrial spaces."],
@@ -11,13 +12,7 @@ const services = [
 
 export default function Home() {
   return <>
-    <section className="hero"><div className="heroGrid" /><div className="wrap heroInner">
-      <p className="pill"><b>Live</b> Surveys booking 2 weeks out</p>
-      <h1>From blueprints<br />to bandwidth.</h1>
-      <p className="lede">We design, optimise and fortify enterprise-grade networks, starting at the construction phase and carrying through security hardening and round-the-clock management.</p>
-      <div className="actions"><Link className="btn" href="/contact">Request a site survey <Arrow /></Link><Link className="btn ghost" href="/services">Explore services</Link></div>
-      <dl className="stats"><div><dt>Cat6A and fiber</dt><dd>Structured cabling</dd></div><div><dt>MikroTik and Sophos</dt><dd>Firewall stack</dd></div><div><dt>24/7</dt><dd>Proactive monitoring</dd></div></dl>
-    </div></section>
+    <HeroSlider />
     <section className="section"><div className="wrap"><PageHeader eyebrow="Why the collective" title="Networks fail at the foundation. So that is where we start." /><div className="grid three">
       <Card number="01" title="Construction first integration">We drop infrastructure while the walls are still open. No retrofits, no surface conduit, no tearing up finished work six months later.</Card>
       <Card number="02" title="Security as architecture">Segmentation, policy and hardware firewalls designed into the topology on day one, not bolted on after the first incident.</Card>
@@ -33,4 +28,3 @@ export default function Home() {
     <CTA title="A dependable network starts before the walls close." description="Tell us what you are building or where performance is falling short. We will start with a survey." />
   </>;
 }
-function Arrow() { return <span aria-hidden="true">→</span>; }
