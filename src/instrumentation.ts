@@ -66,7 +66,13 @@ async function runMigrations(sql: ReturnType<typeof postgres>) {
 
 async function seedAdmin(sql: ReturnType<typeof postgres>) {
   const email = (process.env.SEED_ADMIN_EMAIL || "").trim().toLowerCase();
-  const password = process.env.SEED_ADMIN_PASSWORD;
+  // Password is read from SEED_ADMIN_PASSWORD_B64 (base64) to avoid env-file
+  // parsing issues with special characters like `#` (comment) or `$` (shell).
+  const b64 = process.env.SEED_ADMIN_PASSWORD_B64 || "";
+  const password =
+    b64.trim() !== ""
+      ? Buffer.from(b64.trim(), "base64").toString("utf8")
+      : process.env.SEED_ADMIN_PASSWORD;
   if (!email || !password) {
     console.log("[db-init] seed env vars missing, skipping seed");
     return;
