@@ -17,7 +17,13 @@ export function Header() {
   async function handleSignOut() {
     if (signingOut) return;
     setSigningOut(true);
-    await authClient.signOut();
+    const { error } = await authClient
+      .signOut()
+      .catch(() => ({ error: true }));
+    if (error) {
+      setSigningOut(false);
+      return;
+    }
     router.replace("/");
   }
 
