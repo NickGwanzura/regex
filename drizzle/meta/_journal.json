@@ -8,6 +8,13 @@
       "when": 1785751700894,
       "tag": "0000_lonely_frog_thor",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1785764511764,
+      "tag": "0001_fancy_vance_astro",
+      "breakpoints": true
     }
   ]
 }
