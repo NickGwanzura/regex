@@ -53,10 +53,11 @@ export default function Login() {
     <section className="loginPage">
       <div className="wrap">
         <div className="loginCard">
-          <p className="eyebrow">Client portal</p>
-          <h1>Log in</h1>
+          <p className="eyebrow">RegEx Collective portal</p>
+          <h1>Unified log in</h1>
           <p className="lede">
-            Access project updates, surveys and managed service records.
+            One portal for clients and staff — sign in to access project updates,
+            surveys, managed service records and the admin dashboard.
           </p>
 
           <form className="form loginForm" onSubmit={handleSubmit}>
