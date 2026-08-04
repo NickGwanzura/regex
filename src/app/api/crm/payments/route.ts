@@ -13,14 +13,7 @@ import {
   toCents,
   wrap,
 } from "@/lib/crm";
-
-const PAYMENT_METHODS = [
-  "bank_transfer",
-  "card",
-  "cash",
-  "cheque",
-  "other",
-] as const;
+import { createPayment, firstIssue } from "@/lib/validation";
 
 export const GET = wrap(async (req: NextRequest) => {
   await requireAdmin();
@@ -41,45 +34,36 @@ export const GET = wrap(async (req: NextRequest) => {
 export const POST = wrap(async (req: NextRequest) => {
   await requireAdmin();
   const body = await readJson(req);
-
-  const invoiceId = typeof body.invoiceId === "string" ? body.invoiceId : "";
-  if (!invoiceId) throw new CrmError(400, "invoiceId is required");
+  const parsed = createPayment.safeParse(body);
+  if (!parsed.success) throw new CrmError(400, firstIssue(parsed.error));
+  const data = parsed.data;
 
   const [invoice] = await db
     .select()
     .from(crmInvoices)
-    .where(eq(crmInvoices.id, invoiceId))
+    .where(eq(crmInvoices.id, data.invoiceId))
     .limit(1);
   if (!invoice) throw new CrmError(400, "Invoice not found");
   if (invoice.status === "void") {
     throw new CrmError(400, "Cannot record a payment against a void invoice");
   }
 
-  const amountCents = toCents(
-    typeof body.amount === "number" ? body.amount : NaN,
-  );
-  if (amountCents <= 0) {
-    throw new CrmError(400, "amount must be a positive number");
-  }
-
-  const method = PAYMENT_METHODS.find((m) => m === body.method) ?? "bank_transfer";
+  const amountCents = toCents(data.amount);
+  const method = data.method ?? "bank_transfer";
 
   const [payment] = await db
     .insert(crmPayments)
     .values({
-      invoiceId,
+      invoiceId: data.invoiceId,
       amountCents,
       method,
-      reference: typeof body.reference === "string" ? body.reference : null,
-      paidAt:
-        typeof body.paidAt === "string" && body.paidAt
-          ? new Date(body.paidAt)
-          : new Date(),
-      notes: typeof body.notes === "string" ? body.notes : null,
+      reference: data.reference ?? null,
+      paidAt: data.paidAt ? new Date(data.paidAt) : new Date(),
+      notes: data.notes ?? null,
     })
     .returning();
 
-  await recomputeInvoiceStatus(invoiceId);
+  await recomputeInvoiceStatus(data.invoiceId);
 
   return ok(
     { payment: { ...payment, amount: dollars(payment.amountCents) } },

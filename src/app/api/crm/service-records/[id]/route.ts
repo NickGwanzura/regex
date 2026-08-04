@@ -3,25 +3,8 @@ import { eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { crmInstallations, crmServiceRecords } from "@/lib/db/schema";
-import {
-  CrmError,
-  dollars,
-  ok,
-  readJson,
-  requireAdmin,
-  toCents,
-  wrap,
-} from "@/lib/crm";
-
-const RECORD_KINDS = [
-  "monthly_support",
-  "health_check",
-  "site_visit",
-  "remote_support",
-  "report",
-] as const;
-
-const RECORD_STATUSES = ["scheduled", "completed", "cancelled"] as const;
+import { CrmError, dollars, ok, readJson, requireAdmin, toCents, wrap } from "@/lib/crm";
+import { firstIssue, updateServiceRecord } from "@/lib/validation";
 
 export const GET = wrap(
   async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
@@ -44,6 +27,9 @@ export const PATCH = wrap(
     await requireAdmin();
     const { id } = await ctx.params;
     const body = await readJson(req);
+    const parsed = updateServiceRecord.safeParse(body);
+    if (!parsed.success) throw new CrmError(400, firstIssue(parsed.error));
+    const data = parsed.data;
 
     const [existing] = await db
       .select()
@@ -54,63 +40,36 @@ export const PATCH = wrap(
 
     const patch: Record<string, unknown> = { updatedAt: new Date() };
 
-    if (typeof body.title === "string") {
-      const title = body.title.trim();
-      if (!title) throw new CrmError(400, "title cannot be empty");
-      patch.title = title;
+    if (data.title !== undefined) patch.title = data.title;
+    if (data.kind !== undefined) patch.kind = data.kind;
+    if (data.status !== undefined) patch.status = data.status;
+    if (data.serviceDate !== undefined) {
+      patch.serviceDate = new Date(data.serviceDate);
     }
-    if ("kind" in body) {
-      const kind = RECORD_KINDS.find((k) => k === body.kind);
-      if (!kind) throw new CrmError(400, "invalid kind");
-      patch.kind = kind;
+    if (data.description !== undefined) {
+      patch.description = data.description ?? null;
     }
-    if ("status" in body) {
-      const status = RECORD_STATUSES.find((s) => s === body.status);
-      if (!status) throw new CrmError(400, "invalid status");
-      patch.status = status;
-    }
-    if ("serviceDate" in body) {
-      const d =
-        typeof body.serviceDate === "string" && body.serviceDate
-          ? new Date(body.serviceDate)
-          : null;
-      if (!d || Number.isNaN(d.getTime())) {
-        throw new CrmError(400, "invalid serviceDate");
-      }
-      patch.serviceDate = d;
-    }
-    if ("description" in body) {
-      patch.description =
-        typeof body.description === "string" ? body.description : null;
-    }
-    if ("durationMinutes" in body) {
+    if (data.durationMinutes !== undefined) {
       patch.durationMinutes =
-        typeof body.durationMinutes === "number" && body.durationMinutes > 0
-          ? Math.round(body.durationMinutes)
-          : null;
+        (data.durationMinutes ?? 0) > 0 ? data.durationMinutes : null;
     }
-    if ("durationHours" in body) {
+    if (data.durationHours !== undefined && data.durationHours !== null) {
       patch.durationMinutes =
-        typeof body.durationHours === "number" && body.durationHours > 0
-          ? Math.round(body.durationHours * 60)
-          : null;
+        data.durationHours > 0 ? Math.round(data.durationHours * 60) : null;
     }
-    if ("cost" in body) {
-      patch.costCents = toCents(typeof body.cost === "number" ? body.cost : 0);
+    if (data.cost !== undefined) {
+      patch.costCents = toCents(data.cost ?? 0);
     }
-    if ("notes" in body) {
-      patch.notes = typeof body.notes === "string" ? body.notes : null;
-    }
-    if ("installationId" in body) {
-      const raw = body.installationId;
-      if (typeof raw === "string" && raw) {
+    if (data.notes !== undefined) patch.notes = data.notes ?? null;
+    if (data.installationId !== undefined) {
+      if (data.installationId) {
         const [installation] = await db
           .select({ id: crmInstallations.id })
           .from(crmInstallations)
-          .where(eq(crmInstallations.id, raw))
+          .where(eq(crmInstallations.id, data.installationId))
           .limit(1);
         if (!installation) throw new CrmError(400, "Installation not found");
-        patch.installationId = raw;
+        patch.installationId = data.installationId;
       } else {
         patch.installationId = null;
       }

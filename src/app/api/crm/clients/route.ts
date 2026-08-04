@@ -3,14 +3,8 @@ import { and, desc, eq, ilike, or } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { crmClients } from "@/lib/db/schema";
-import {
-  CLIENT_STATUSES,
-  CrmError,
-  ok,
-  readJson,
-  requireAdmin,
-  wrap,
-} from "@/lib/crm";
+import { CLIENT_STATUSES, CrmError, ok, readJson, requireAdmin, wrap } from "@/lib/crm";
+import { createClient, firstIssue } from "@/lib/validation";
 
 export const GET = wrap(async (req: NextRequest) => {
   await requireAdmin();
@@ -41,26 +35,21 @@ export const GET = wrap(async (req: NextRequest) => {
 export const POST = wrap(async (req: NextRequest) => {
   await requireAdmin();
   const body = await readJson(req);
-
-  const name = typeof body.name === "string" ? body.name.trim() : "";
-  if (!name) throw new CrmError(400, "name is required");
-
-  const status = CLIENT_STATUSES.find((s) => s === body.status) ?? "lead";
+  const parsed = createClient.safeParse(body);
+  if (!parsed.success) throw new CrmError(400, firstIssue(parsed.error));
+  const data = parsed.data;
 
   const [client] = await db
     .insert(crmClients)
     .values({
-      name,
-      industry: typeof body.industry === "string" ? body.industry : null,
-      billingEmail:
-        typeof body.billingEmail === "string" ? body.billingEmail : null,
-      billingPhone:
-        typeof body.billingPhone === "string" ? body.billingPhone : null,
-      billingAddress:
-        typeof body.billingAddress === "string" ? body.billingAddress : null,
-      website: typeof body.website === "string" ? body.website : null,
-      status,
-      notes: typeof body.notes === "string" ? body.notes : null,
+      name: data.name,
+      industry: data.industry ?? null,
+      billingEmail: data.billingEmail ?? null,
+      billingPhone: data.billingPhone ?? null,
+      billingAddress: data.billingAddress ?? null,
+      website: data.website ?? null,
+      status: data.status ?? "lead",
+      notes: data.notes ?? null,
     })
     .returning();
 

@@ -3,25 +3,13 @@ import { and, asc, eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { crmClients, crmInstallations, crmServiceRecords } from "@/lib/db/schema";
+import { CrmError, dollars, ok, readJson, requireAdmin, toCents, wrap } from "@/lib/crm";
 import {
-  CrmError,
-  dollars,
-  ok,
-  readJson,
-  requireAdmin,
-  toCents,
-  wrap,
-} from "@/lib/crm";
-
-const RECORD_KINDS = [
-  "monthly_support",
-  "health_check",
-  "site_visit",
-  "remote_support",
-  "report",
-] as const;
-
-const RECORD_STATUSES = ["scheduled", "completed", "cancelled"] as const;
+  RECORD_KINDS,
+  RECORD_STATUSES,
+  createServiceRecord,
+  firstIssue,
+} from "@/lib/validation";
 
 export const GET = wrap(async (req: NextRequest) => {
   await requireAdmin();
@@ -55,62 +43,48 @@ export const GET = wrap(async (req: NextRequest) => {
 export const POST = wrap(async (req: NextRequest) => {
   await requireAdmin();
   const body = await readJson(req);
-
-  const clientId = typeof body.clientId === "string" ? body.clientId : "";
-  const title = typeof body.title === "string" ? body.title.trim() : "";
-  if (!clientId) throw new CrmError(400, "clientId is required");
-  if (!title) throw new CrmError(400, "title is required");
-
-  const serviceDate =
-    typeof body.serviceDate === "string" && body.serviceDate
-      ? new Date(body.serviceDate)
-      : null;
-  if (!serviceDate || Number.isNaN(serviceDate.getTime())) {
-    throw new CrmError(400, "serviceDate is required (ISO date)");
-  }
+  const parsed = createServiceRecord.safeParse(body);
+  if (!parsed.success) throw new CrmError(400, firstIssue(parsed.error));
+  const data = parsed.data;
 
   const [client] = await db
     .select({ id: crmClients.id })
     .from(crmClients)
-    .where(eq(crmClients.id, clientId))
+    .where(eq(crmClients.id, data.clientId))
     .limit(1);
   if (!client) throw new CrmError(400, "Client not found");
 
   let installationId: string | null = null;
-  if (typeof body.installationId === "string" && body.installationId) {
+  if (data.installationId) {
     const [installation] = await db
       .select({ id: crmInstallations.id })
       .from(crmInstallations)
-      .where(eq(crmInstallations.id, body.installationId))
+      .where(eq(crmInstallations.id, data.installationId))
       .limit(1);
     if (!installation) throw new CrmError(400, "Installation not found");
-    installationId = body.installationId;
+    installationId = data.installationId;
   }
 
-  const kind = RECORD_KINDS.find((k) => k === body.kind) ?? "site_visit";
-  const status = RECORD_STATUSES.find((s) => s === body.status) ?? "scheduled";
-
-  let durationMinutes: number | null = null;
-  if (typeof body.durationMinutes === "number" && body.durationMinutes > 0) {
-    durationMinutes = Math.round(body.durationMinutes);
-  } else if (typeof body.durationHours === "number" && body.durationHours > 0) {
-    durationMinutes = Math.round(body.durationHours * 60);
-  }
+  const durationMinutes =
+    data.durationMinutes && data.durationMinutes > 0
+      ? data.durationMinutes
+      : data.durationHours && data.durationHours > 0
+        ? Math.round(data.durationHours * 60)
+        : null;
 
   const [record] = await db
     .insert(crmServiceRecords)
     .values({
-      clientId,
+      clientId: data.clientId,
       installationId,
-      kind,
-      title,
-      description:
-        typeof body.description === "string" ? body.description : null,
-      serviceDate,
+      kind: data.kind ?? "site_visit",
+      title: data.title,
+      description: data.description ?? null,
+      serviceDate: new Date(data.serviceDate),
       durationMinutes,
-      costCents: toCents(typeof body.cost === "number" ? body.cost : 0),
-      status,
-      notes: typeof body.notes === "string" ? body.notes : null,
+      costCents: toCents(data.cost ?? 0),
+      status: data.status ?? "scheduled",
+      notes: data.notes ?? null,
     })
     .returning();
 

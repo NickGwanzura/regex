@@ -8,12 +8,23 @@ import { eq, sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { crmInvoices, crmPayments } from "@/lib/db/schema";
-import type {
-  CrmClient,
-  CrmInstallation,
-  CrmInvoice,
-  CrmQuote,
-} from "@/lib/db/schema";
+import type { CrmInvoice } from "@/lib/db/schema";
+import { firstIssue, lineItems } from "@/lib/validation";
+
+// Enum string lists now live in lib/validation (the single source of truth)
+// and are re-exported here so existing callers importing from "@/lib/crm"
+// keep working.
+export {
+  CLIENT_STATUSES,
+  ENGAGEMENT_MODELS,
+  INSTALLATION_STATUSES,
+  INVOICE_STATUSES,
+  QUOTE_STATUSES,
+  SERVICE_TYPES,
+} from "./validation";
+
+/** The transaction handle passed to db.transaction() callbacks. */
+export type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /**
  * Re-derives an invoice's status from its payments:
@@ -113,10 +124,6 @@ export function dollars(cents: number): number {
   return Math.round(cents) / 100;
 }
 
-export function taxRateOf(value: unknown): number {
-  const n = typeof value === "number" && Number.isFinite(value) ? value : 0;
-  return Math.min(100, Math.max(0, Math.round(n * 100) / 100));
-}
 
 export interface LineItem {
   description: string;
@@ -126,21 +133,13 @@ export interface LineItem {
 
 /** Validates a line-items array (API shape: {description, qty, unitPrice}). */
 export function parseItems(items: unknown): LineItem[] {
-  if (!Array.isArray(items) || items.length === 0) {
-    throw new CrmError(400, "items must be a non-empty array");
-  }
-  return items.map((raw) => {
-    const it = (raw ?? {}) as Record<string, unknown>;
-    const description =
-      typeof it.description === "string" ? it.description.trim() : "";
-    if (!description) {
-      throw new CrmError(400, "each item requires a description");
-    }
-    const qty =
-      typeof it.qty === "number" && it.qty > 0 ? Math.round(it.qty) : 1;
-    const unitPrice = typeof it.unitPrice === "number" ? it.unitPrice : 0;
-    return { description, qty, unitPriceCents: toCents(unitPrice) };
-  });
+  const parsed = lineItems.safeParse(items);
+  if (!parsed.success) throw new CrmError(400, firstIssue(parsed.error));
+  return parsed.data.map((i) => ({
+    description: i.description,
+    qty: i.qty,
+    unitPriceCents: toCents(i.unitPrice),
+  }));
 }
 
 export function serializeItems(items: LineItem[]) {
@@ -163,75 +162,22 @@ export function computeTotals(
   };
 }
 
-// Typed enum arrays for filtering / validation.
-export const CLIENT_STATUSES: Array<CrmClient["status"]> = [
-  "lead",
-  "active",
-  "inactive",
-];
-
-export const INSTALLATION_STATUSES: Array<CrmInstallation["status"]> = [
+// Derived filter lists for stats (base enums live in lib/validation).
+export const ACTIVE_INSTALLATION_STATUSES = [
   "lead",
   "planned",
   "in_progress",
   "on_hold",
-  "completed",
-  "cancelled",
-];
+] as const;
 
-export const ACTIVE_INSTALLATION_STATUSES: Array<CrmInstallation["status"]> = [
-  "lead",
-  "planned",
-  "in_progress",
-  "on_hold",
-];
+export const OPEN_QUOTE_STATUSES = ["draft", "sent"] as const;
 
-export const SERVICE_TYPES: Array<CrmInstallation["serviceType"]> = [
-  "wireless_rf",
-  "structured_cabling",
-  "firewall_security",
-  "managed_support",
-  "vpn",
-];
+export const OPEN_INVOICE_STATUSES = ["sent", "partial", "overdue"] as const;
 
-export const ENGAGEMENT_MODELS: Array<CrmInstallation["engagementModel"]> = [
-  "build",
-  "repair",
-  "operate",
-];
-
-export const QUOTE_STATUSES: Array<CrmQuote["status"]> = [
-  "draft",
-  "sent",
-  "accepted",
-  "declined",
-  "expired",
-];
-
-export const OPEN_QUOTE_STATUSES: Array<CrmQuote["status"]> = [
-  "draft",
-  "sent",
-];
-
-export const INVOICE_STATUSES: Array<CrmInvoice["status"]> = [
+export const NON_VOID_INVOICE_STATUSES = [
   "draft",
   "sent",
   "partial",
   "paid",
   "overdue",
-  "void",
-];
-
-export const OPEN_INVOICE_STATUSES: Array<CrmInvoice["status"]> = [
-  "sent",
-  "partial",
-  "overdue",
-];
-
-export const NON_VOID_INVOICE_STATUSES: Array<CrmInvoice["status"]> = [
-  "draft",
-  "sent",
-  "partial",
-  "paid",
-  "overdue",
-];
+] as const;

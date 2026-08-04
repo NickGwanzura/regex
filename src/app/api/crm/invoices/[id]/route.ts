@@ -19,9 +19,9 @@ import {
   readJson,
   requireAdmin,
   serializeItems,
-  taxRateOf,
   wrap,
 } from "@/lib/crm";
+import { firstIssue, updateInvoice } from "@/lib/validation";
 import type { CrmInvoice } from "@/lib/db/schema";
 
 function serializeInvoice(inv: CrmInvoice) {
@@ -82,6 +82,9 @@ export const PATCH = wrap(
     await requireAdmin();
     const { id } = await ctx.params;
     const body = await readJson(req);
+    const parsed = updateInvoice.safeParse(body);
+    if (!parsed.success) throw new CrmError(400, firstIssue(parsed.error));
+    const data = parsed.data;
 
     const [existing] = await db
       .select()
@@ -92,45 +95,34 @@ export const PATCH = wrap(
 
     const patch: Record<string, unknown> = { updatedAt: new Date() };
 
-    if ("status" in body) {
-      const status = INVOICE_STATUSES.find((s) => s === body.status);
-      if (!status) throw new CrmError(400, "invalid status");
-      patch.status = status;
-      patch.paidAt = status === "paid" ? new Date() : null;
+    if (data.status !== undefined) {
+      patch.status = data.status;
+      patch.paidAt = data.status === "paid" ? new Date() : null;
     }
-    if ("taxRate" in body) patch.taxRate = taxRateOf(body.taxRate);
-    if ("installationId" in body) {
-      const raw = body.installationId;
-      if (typeof raw === "string" && raw) {
+    if (data.taxRate !== undefined) patch.taxRate = data.taxRate ?? 0;
+    if (data.installationId !== undefined) {
+      if (data.installationId) {
         const [installation] = await db
           .select({ id: crmInstallations.id })
           .from(crmInstallations)
-          .where(eq(crmInstallations.id, raw))
+          .where(eq(crmInstallations.id, data.installationId))
           .limit(1);
         if (!installation) throw new CrmError(400, "Installation not found");
-        patch.installationId = raw;
+        patch.installationId = data.installationId;
       } else {
         patch.installationId = null;
       }
     }
-    if ("issueDate" in body) {
-      patch.issueDate =
-        typeof body.issueDate === "string" && body.issueDate
-          ? new Date(body.issueDate)
-          : new Date();
+    if (data.issueDate !== undefined) {
+      patch.issueDate = data.issueDate ? new Date(data.issueDate) : new Date();
     }
-    if ("dueDate" in body) {
-      patch.dueDate =
-        typeof body.dueDate === "string" && body.dueDate
-          ? new Date(body.dueDate)
-          : null;
+    if (data.dueDate !== undefined) {
+      patch.dueDate = data.dueDate ? new Date(data.dueDate) : null;
     }
-    if ("notes" in body) {
-      patch.notes = typeof body.notes === "string" ? body.notes : null;
-    }
+    if (data.notes !== undefined) patch.notes = data.notes ?? null;
 
-    if (Array.isArray(body.items)) {
-      const items = parseItems(body.items);
+    if (data.items) {
+      const items = parseItems(data.items);
       const totals = computeTotals(
         items,
         (patch.taxRate as number) ?? existing.taxRate,

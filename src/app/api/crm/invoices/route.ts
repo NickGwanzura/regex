@@ -20,9 +20,10 @@ import {
   parseItems,
   readJson,
   requireAdmin,
-  taxRateOf,
   wrap,
 } from "@/lib/crm";
+import type { DbTx, LineItem } from "@/lib/crm";
+import { createInvoice, firstIssue } from "@/lib/validation";
 import type { CrmInvoice } from "@/lib/db/schema";
 
 function serializeInvoice(inv: CrmInvoice) {
@@ -34,14 +35,21 @@ function serializeInvoice(inv: CrmInvoice) {
   };
 }
 
-async function nextInvoiceNumber() {
-  const year = new Date().getFullYear();
-  const prefix = `INV-${year}-`;
-  const existing = await db
-    .select({ number: crmInvoices.number })
+// Serializes number allocation per entity: concurrent creates block on a
+// Postgres advisory (transaction-scoped) lock, then take MAX(seq)+1, so two
+// requests can never pick the same number — even after deletions.
+const INVOICE_NUMBER_LOCK = 7302;
+
+async function nextInvoiceNumber(tx: DbTx) {
+  const prefix = `INV-${new Date().getFullYear()}-`;
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(${INVOICE_NUMBER_LOCK})`);
+  const [agg] = await tx
+    .select({
+      next: sql<number>`COALESCE(MAX(CAST(SUBSTRING(${crmInvoices.number} FROM ${prefix.length + 1}) AS INTEGER)), 0) + 1`,
+    })
     .from(crmInvoices)
     .where(like(crmInvoices.number, `${prefix}%`));
-  return `${prefix}${String(existing.length + 1).padStart(4, "0")}`;
+  return `${prefix}${String(agg?.next ?? 1).padStart(4, "0")}`;
 }
 
 export const GET = wrap(async (req: NextRequest) => {
@@ -92,13 +100,15 @@ export const GET = wrap(async (req: NextRequest) => {
 export const POST = wrap(async (req: NextRequest) => {
   await requireAdmin();
   const body = await readJson(req);
+  const parsed = createInvoice.safeParse(body);
+  if (!parsed.success) throw new CrmError(400, firstIssue(parsed.error));
+  const data = parsed.data;
 
-  const quoteId = typeof body.quoteId === "string" ? body.quoteId : undefined;
-  let clientId = typeof body.clientId === "string" ? body.clientId : "";
-  let installationId =
-    typeof body.installationId === "string" ? body.installationId : undefined;
-  let taxRate = taxRateOf(body.taxRate);
-  let itemsRaw: unknown = body.items;
+  const quoteId = data.quoteId;
+  let clientId = data.clientId;
+  let installationId = data.installationId ?? undefined;
+  let taxRate = data.taxRate ?? 0;
+  let items: LineItem[];
 
   // Invoice created from an accepted quote copies the quote's items + tax.
   if (quoteId) {
@@ -111,20 +121,28 @@ export const POST = wrap(async (req: NextRequest) => {
     if (!clientId) clientId = quote.clientId;
     if (!installationId) installationId = quote.installationId ?? undefined;
     taxRate = quote.taxRate;
-    if (!Array.isArray(itemsRaw)) {
+    if (data.items) {
+      items = parseItems(data.items);
+    } else {
       const quoteItems = await db
         .select()
         .from(crmQuoteItems)
         .where(eq(crmQuoteItems.quoteId, quoteId));
-      itemsRaw = quoteItems.map((i) => ({
+      items = quoteItems.map((i) => ({
         description: i.description,
         qty: i.qty,
-        unitPrice: dollars(i.unitPriceCents),
+        unitPriceCents: i.unitPriceCents,
       }));
     }
+  } else {
+    items = parseItems(data.items);
   }
 
   if (!clientId) throw new CrmError(400, "clientId is required");
+  if (items.length === 0) {
+    throw new CrmError(400, "items must be a non-empty array");
+  }
+
   const [client] = await db
     .select({ id: crmClients.id })
     .from(crmClients)
@@ -141,20 +159,13 @@ export const POST = wrap(async (req: NextRequest) => {
     if (!installation) throw new CrmError(400, "Installation not found");
   }
 
-  const items = parseItems(itemsRaw);
   const totals = computeTotals(items, taxRate);
-  const status = INVOICE_STATUSES.find((s) => s === body.status) ?? "draft";
-  const number = await nextInvoiceNumber();
-  const issueDate =
-    typeof body.issueDate === "string" && body.issueDate
-      ? new Date(body.issueDate)
-      : new Date();
-  const dueDate =
-    typeof body.dueDate === "string" && body.dueDate
-      ? new Date(body.dueDate)
-      : null;
+  const status = data.status ?? "draft";
+  const issueDate = data.issueDate ? new Date(data.issueDate) : new Date();
+  const dueDate = data.dueDate ? new Date(data.dueDate) : null;
 
   const [invoice] = await db.transaction(async (tx) => {
+    const number = await nextInvoiceNumber(tx);
     const [created] = await tx
       .insert(crmInvoices)
       .values({
@@ -167,7 +178,7 @@ export const POST = wrap(async (req: NextRequest) => {
         ...totals,
         issueDate,
         dueDate,
-        notes: typeof body.notes === "string" ? body.notes : null,
+        notes: data.notes ?? null,
       })
       .returning();
     await tx

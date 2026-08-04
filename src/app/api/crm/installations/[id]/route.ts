@@ -9,18 +9,8 @@ import {
   crmQuotes,
   crmServiceRecords,
 } from "@/lib/db/schema";
-import {
-  ENGAGEMENT_MODELS,
-  INSTALLATION_STATUSES,
-  SERVICE_TYPES,
-  CrmError,
-  dollars,
-  ok,
-  readJson,
-  requireAdmin,
-  toCents,
-  wrap,
-} from "@/lib/crm";
+import { CrmError, dollars, ok, readJson, requireAdmin, toCents, wrap } from "@/lib/crm";
+import { firstIssue, updateInstallation } from "@/lib/validation";
 import type { CrmInstallation } from "@/lib/db/schema";
 
 function serializeInstallation(i: CrmInstallation) {
@@ -54,6 +44,9 @@ export const PATCH = wrap(
     await requireAdmin();
     const { id } = await ctx.params;
     const body = await readJson(req);
+    const parsed = updateInstallation.safeParse(body);
+    if (!parsed.success) throw new CrmError(400, firstIssue(parsed.error));
+    const data = parsed.data;
 
     const [existing] = await db
       .select()
@@ -64,46 +57,25 @@ export const PATCH = wrap(
 
     const patch: Record<string, unknown> = { updatedAt: new Date() };
 
-    if (typeof body.name === "string") {
-      const name = body.name.trim();
-      if (!name) throw new CrmError(400, "name cannot be empty");
-      patch.name = name;
+    if (data.name !== undefined) patch.name = data.name;
+    if (data.serviceType !== undefined) patch.serviceType = data.serviceType;
+    if (data.engagementModel !== undefined) {
+      patch.engagementModel = data.engagementModel;
     }
-    if ("serviceType" in body) {
-      const serviceType = SERVICE_TYPES.find((s) => s === body.serviceType);
-      if (!serviceType) throw new CrmError(400, "invalid serviceType");
-      patch.serviceType = serviceType;
+    if (data.status !== undefined) patch.status = data.status;
+    if (data.siteAddress !== undefined) {
+      patch.siteAddress = data.siteAddress ?? null;
     }
-    if ("engagementModel" in body) {
-      const engagementModel = ENGAGEMENT_MODELS.find(
-        (m) => m === body.engagementModel,
-      );
-      if (!engagementModel) throw new CrmError(400, "invalid engagementModel");
-      patch.engagementModel = engagementModel;
+    if (data.startDate !== undefined) {
+      patch.startDate = data.startDate ? new Date(data.startDate) : null;
     }
-    if ("status" in body) {
-      const status = INSTALLATION_STATUSES.find((s) => s === body.status);
-      if (!status) throw new CrmError(400, "invalid status");
-      patch.status = status;
+    if (data.endDate !== undefined) {
+      patch.endDate = data.endDate ? new Date(data.endDate) : null;
     }
-    if ("siteAddress" in body) {
-      patch.siteAddress =
-        typeof body.siteAddress === "string" ? body.siteAddress : null;
+    if (data.value !== undefined) {
+      patch.valueCents = toCents(data.value ?? 0);
     }
-    if ("startDate" in body) {
-      patch.startDate =
-        typeof body.startDate === "string" ? new Date(body.startDate) : null;
-    }
-    if ("endDate" in body) {
-      patch.endDate =
-        typeof body.endDate === "string" ? new Date(body.endDate) : null;
-    }
-    if ("value" in body) {
-      patch.valueCents = toCents(typeof body.value === "number" ? body.value : 0);
-    }
-    if ("notes" in body) {
-      patch.notes = typeof body.notes === "string" ? body.notes : null;
-    }
+    if (data.notes !== undefined) patch.notes = data.notes ?? null;
 
     const [installation] = await db
       .update(crmInstallations)

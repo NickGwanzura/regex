@@ -6,7 +6,6 @@ import { crmClients, crmInstallations } from "@/lib/db/schema";
 import {
   ENGAGEMENT_MODELS,
   INSTALLATION_STATUSES,
-  SERVICE_TYPES,
   CrmError,
   dollars,
   ok,
@@ -15,6 +14,7 @@ import {
   toCents,
   wrap,
 } from "@/lib/crm";
+import { createInstallation, firstIssue } from "@/lib/validation";
 import type { CrmInstallation } from "@/lib/db/schema";
 
 function serializeInstallation(i: CrmInstallation) {
@@ -48,52 +48,30 @@ export const GET = wrap(async (req: NextRequest) => {
 export const POST = wrap(async (req: NextRequest) => {
   await requireAdmin();
   const body = await readJson(req);
-
-  const clientId = typeof body.clientId === "string" ? body.clientId : "";
-  const name = typeof body.name === "string" ? body.name.trim() : "";
-  if (!clientId) throw new CrmError(400, "clientId is required");
-  if (!name) throw new CrmError(400, "name is required");
-
-  const serviceType = SERVICE_TYPES.find((s) => s === body.serviceType);
-  if (!serviceType) {
-    throw new CrmError(
-      400,
-      `serviceType is required (one of: ${SERVICE_TYPES.join(", ")})`,
-    );
-  }
-  const engagementModel = ENGAGEMENT_MODELS.find((m) => m === body.engagementModel);
-  if (!engagementModel) {
-    throw new CrmError(
-      400,
-      `engagementModel is required (one of: ${ENGAGEMENT_MODELS.join(", ")})`,
-    );
-  }
+  const parsed = createInstallation.safeParse(body);
+  if (!parsed.success) throw new CrmError(400, firstIssue(parsed.error));
+  const data = parsed.data;
 
   const [client] = await db
     .select({ id: crmClients.id })
     .from(crmClients)
-    .where(eq(crmClients.id, clientId))
+    .where(eq(crmClients.id, data.clientId))
     .limit(1);
   if (!client) throw new CrmError(400, "Client not found");
-
-  const status =
-    INSTALLATION_STATUSES.find((s) => s === body.status) ?? "lead";
 
   const [installation] = await db
     .insert(crmInstallations)
     .values({
-      clientId,
-      name,
-      serviceType,
-      engagementModel,
-      status,
-      siteAddress:
-        typeof body.siteAddress === "string" ? body.siteAddress : null,
-      startDate:
-        typeof body.startDate === "string" ? new Date(body.startDate) : null,
-      endDate: typeof body.endDate === "string" ? new Date(body.endDate) : null,
-      valueCents: toCents(typeof body.value === "number" ? body.value : 0),
-      notes: typeof body.notes === "string" ? body.notes : null,
+      clientId: data.clientId,
+      name: data.name,
+      serviceType: data.serviceType,
+      engagementModel: data.engagementModel,
+      status: data.status ?? "lead",
+      siteAddress: data.siteAddress ?? null,
+      startDate: data.startDate ? new Date(data.startDate) : null,
+      endDate: data.endDate ? new Date(data.endDate) : null,
+      valueCents: toCents(data.value ?? 0),
+      notes: data.notes ?? null,
     })
     .returning();
 

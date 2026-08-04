@@ -1,3 +1,4 @@
+import { relations } from "drizzle-orm";
 import {
   boolean,
   integer,
@@ -62,6 +63,22 @@ export const verification = pgTable("verification", {
 export type User = typeof user.$inferSelect;
 export type Session = typeof session.$inferSelect;
 export type Account = typeof account.$inferSelect;
+
+// Relations for the auth tables. Better Auth's Drizzle adapter (with
+// `experimental: { joins: true }`) resolves `session.user` etc. through the
+// relational query API, so these must exist or session lookups return null.
+export const userRelations = relations(user, ({ many }) => ({
+  sessions: many(session),
+  accounts: many(account),
+}));
+
+export const sessionRelations = relations(session, ({ one }) => ({
+  user: one(user, { fields: [session.userId], references: [user.id] }),
+}));
+
+export const accountRelations = relations(account, ({ one }) => ({
+  user: one(user, { fields: [account.userId], references: [user.id] }),
+}));
 
 // ---------------------------------------------------------------------------
 // CRM
@@ -135,6 +152,52 @@ export const recordStatusEnum = pgEnum("record_status", [
   "completed",
   "cancelled",
 ]);
+
+export const leadStatusEnum = pgEnum("lead_status", [
+  "new",
+  "contacted",
+  "survey_booked",
+  "surveyed",
+  "proposal_sent",
+  "won",
+  "lost",
+]);
+
+// ---- Leads (contact-form capture) ----
+
+export const crmLeads = pgTable("crm_leads", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  company: text("company"),
+  projectType: text("projectType"),
+  details: text("details"),
+  source: text("source").default("website").notNull(),
+  status: leadStatusEnum("status").default("new").notNull(),
+  assignedTo: text("assignedTo").references(() => user.id, {
+    onDelete: "set null",
+  }),
+  ipAddress: text("ipAddress"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+// ---- Invites (invite-only signup) ----
+
+export const invites = pgTable("invites", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  email: text("email").notNull().unique(),
+  role: text("role").default("user").notNull(),
+  token: text("token").notNull().unique(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  acceptedAt: timestamp("acceptedAt"),
+  revokedAt: timestamp("revokedAt"),
+  createdBy: text("createdBy").references(() => user.id, {
+    onDelete: "set null",
+  }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
 
 // ---- Clients ----
 
@@ -293,6 +356,8 @@ export const crmServiceRecords = pgTable("crm_service_records", {
 });
 
 export type CrmClient = typeof crmClients.$inferSelect;
+export type CrmLead = typeof crmLeads.$inferSelect;
+export type Invite = typeof invites.$inferSelect;
 export type CrmContact = typeof crmContacts.$inferSelect;
 export type CrmInstallation = typeof crmInstallations.$inferSelect;
 export type CrmQuote = typeof crmQuotes.$inferSelect;

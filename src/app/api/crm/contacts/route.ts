@@ -4,6 +4,7 @@ import { asc, desc, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { crmClients, crmContacts } from "@/lib/db/schema";
 import { CrmError, ok, readJson, requireAdmin, wrap } from "@/lib/crm";
+import { createContact, firstIssue } from "@/lib/validation";
 
 export const GET = wrap(async (req: NextRequest) => {
   await requireAdmin();
@@ -22,28 +23,26 @@ export const GET = wrap(async (req: NextRequest) => {
 export const POST = wrap(async (req: NextRequest) => {
   await requireAdmin();
   const body = await readJson(req);
-
-  const clientId = typeof body.clientId === "string" ? body.clientId : "";
-  const name = typeof body.name === "string" ? body.name.trim() : "";
-  if (!clientId) throw new CrmError(400, "clientId is required");
-  if (!name) throw new CrmError(400, "name is required");
+  const parsed = createContact.safeParse(body);
+  if (!parsed.success) throw new CrmError(400, firstIssue(parsed.error));
+  const data = parsed.data;
 
   const [client] = await db
     .select({ id: crmClients.id })
     .from(crmClients)
-    .where(eq(crmClients.id, clientId))
+    .where(eq(crmClients.id, data.clientId))
     .limit(1);
   if (!client) throw new CrmError(400, "Client not found");
 
   const [contact] = await db
     .insert(crmContacts)
     .values({
-      clientId,
-      name,
-      email: typeof body.email === "string" ? body.email : null,
-      phone: typeof body.phone === "string" ? body.phone : null,
-      role: typeof body.role === "string" ? body.role : null,
-      isPrimary: body.isPrimary === true,
+      clientId: data.clientId,
+      name: data.name,
+      email: data.email ?? null,
+      phone: data.phone ?? null,
+      role: data.role ?? null,
+      isPrimary: data.isPrimary ?? false,
     })
     .returning();
 

@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { crmContacts } from "@/lib/db/schema";
 import { CrmError, ok, readJson, requireAdmin, wrap } from "@/lib/crm";
+import { firstIssue, updateContact } from "@/lib/validation";
 
 export const GET = wrap(
   async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
@@ -26,6 +27,9 @@ export const PATCH = wrap(
     await requireAdmin();
     const { id } = await ctx.params;
     const body = await readJson(req);
+    const parsed = updateContact.safeParse(body);
+    if (!parsed.success) throw new CrmError(400, firstIssue(parsed.error));
+    const data = parsed.data;
 
     const [existing] = await db
       .select()
@@ -36,18 +40,11 @@ export const PATCH = wrap(
 
     const patch: Record<string, unknown> = { updatedAt: new Date() };
 
-    if (typeof body.name === "string") {
-      const name = body.name.trim();
-      if (!name) throw new CrmError(400, "name cannot be empty");
-      patch.name = name;
-    }
+    if (data.name !== undefined) patch.name = data.name;
     for (const field of ["email", "phone", "role"] as const) {
-      if (field in body) {
-        patch[field] =
-          typeof body[field] === "string" ? (body[field] as string) : null;
-      }
+      if (data[field] !== undefined) patch[field] = data[field] ?? null;
     }
-    if ("isPrimary" in body) patch.isPrimary = body.isPrimary === true;
+    if (data.isPrimary !== undefined) patch.isPrimary = data.isPrimary;
 
     const [contact] = await db
       .update(crmContacts)

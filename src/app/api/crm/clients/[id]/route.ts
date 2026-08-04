@@ -10,14 +10,8 @@ import {
   crmQuotes,
   crmServiceRecords,
 } from "@/lib/db/schema";
-import {
-  CLIENT_STATUSES,
-  CrmError,
-  ok,
-  readJson,
-  requireAdmin,
-  wrap,
-} from "@/lib/crm";
+import { CLIENT_STATUSES, CrmError, ok, readJson, requireAdmin, wrap } from "@/lib/crm";
+import { firstIssue, updateClient } from "@/lib/validation";
 
 export const GET = wrap(
   async (req: NextRequest, ctx: { params: Promise<{ id: string }> }) => {
@@ -53,6 +47,9 @@ export const PATCH = wrap(
     await requireAdmin();
     const { id } = await ctx.params;
     const body = await readJson(req);
+    const parsed = updateClient.safeParse(body);
+    if (!parsed.success) throw new CrmError(400, firstIssue(parsed.error));
+    const data = parsed.data;
 
     const [existing] = await db
       .select()
@@ -63,11 +60,7 @@ export const PATCH = wrap(
 
     const patch: Record<string, unknown> = { updatedAt: new Date() };
 
-    if (typeof body.name === "string") {
-      const name = body.name.trim();
-      if (!name) throw new CrmError(400, "name cannot be empty");
-      patch.name = name;
-    }
+    if (data.name !== undefined) patch.name = data.name;
     for (const field of [
       "industry",
       "billingEmail",
@@ -76,16 +69,9 @@ export const PATCH = wrap(
       "website",
       "notes",
     ] as const) {
-      if (field in body) {
-        patch[field] =
-          typeof body[field] === "string" ? (body[field] as string) : null;
-      }
+      if (data[field] !== undefined) patch[field] = data[field] ?? null;
     }
-    if ("status" in body) {
-      const status = CLIENT_STATUSES.find((s) => s === body.status);
-      if (!status) throw new CrmError(400, "invalid status");
-      patch.status = status;
-    }
+    if (data.status !== undefined) patch.status = data.status;
 
     const [client] = await db
       .update(crmClients)

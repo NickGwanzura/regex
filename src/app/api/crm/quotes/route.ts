@@ -1,8 +1,13 @@
 import { NextRequest } from "next/server";
-import { and, desc, eq, like } from "drizzle-orm";
+import { and, desc, eq, like, sql } from "drizzle-orm";
 
 import { db } from "@/lib/db";
-import { crmClients, crmInstallations, crmQuoteItems, crmQuotes } from "@/lib/db/schema";
+import {
+  crmClients,
+  crmInstallations,
+  crmQuoteItems,
+  crmQuotes,
+} from "@/lib/db/schema";
 import {
   QUOTE_STATUSES,
   CrmError,
@@ -12,9 +17,10 @@ import {
   parseItems,
   readJson,
   requireAdmin,
-  taxRateOf,
   wrap,
 } from "@/lib/crm";
+import type { DbTx } from "@/lib/crm";
+import { createQuote, firstIssue } from "@/lib/validation";
 import type { CrmQuote } from "@/lib/db/schema";
 
 function serializeQuote(q: CrmQuote) {
@@ -26,14 +32,21 @@ function serializeQuote(q: CrmQuote) {
   };
 }
 
-async function nextQuoteNumber() {
-  const year = new Date().getFullYear();
-  const prefix = `Q-${year}-`;
-  const existing = await db
-    .select({ number: crmQuotes.number })
+// Serializes number allocation per entity: concurrent creates block on a
+// Postgres advisory (transaction-scoped) lock, then take MAX(seq)+1, so two
+// requests can never pick the same number — even after deletions.
+const QUOTE_NUMBER_LOCK = 7301;
+
+async function nextQuoteNumber(tx: DbTx) {
+  const prefix = `Q-${new Date().getFullYear()}-`;
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(${QUOTE_NUMBER_LOCK})`);
+  const [agg] = await tx
+    .select({
+      next: sql<number>`COALESCE(MAX(CAST(SUBSTRING(${crmQuotes.number} FROM ${prefix.length + 1}) AS INTEGER)), 0) + 1`,
+    })
     .from(crmQuotes)
     .where(like(crmQuotes.number, `${prefix}%`));
-  return `${prefix}${String(existing.length + 1).padStart(4, "0")}`;
+  return `${prefix}${String(agg?.next ?? 1).padStart(4, "0")}`;
 }
 
 export const GET = wrap(async (req: NextRequest) => {
@@ -66,48 +79,47 @@ export const GET = wrap(async (req: NextRequest) => {
 export const POST = wrap(async (req: NextRequest) => {
   await requireAdmin();
   const body = await readJson(req);
-
-  const clientId = typeof body.clientId === "string" ? body.clientId : "";
-  if (!clientId) throw new CrmError(400, "clientId is required");
+  const parsed = createQuote.safeParse(body);
+  if (!parsed.success) throw new CrmError(400, firstIssue(parsed.error));
+  const data = parsed.data;
 
   const [client] = await db
     .select({ id: crmClients.id })
     .from(crmClients)
-    .where(eq(crmClients.id, clientId))
+    .where(eq(crmClients.id, data.clientId))
     .limit(1);
   if (!client) throw new CrmError(400, "Client not found");
 
-  let installationId: string | undefined;
-  if (typeof body.installationId === "string" && body.installationId) {
+  let installationId: string | null = null;
+  if (data.installationId) {
     const [installation] = await db
       .select({ id: crmInstallations.id })
       .from(crmInstallations)
-      .where(eq(crmInstallations.id, body.installationId))
+      .where(eq(crmInstallations.id, data.installationId))
       .limit(1);
     if (!installation) throw new CrmError(400, "Installation not found");
-    installationId = body.installationId;
+    installationId = data.installationId;
   }
 
-  const items = parseItems(body.items);
-  const taxRate = taxRateOf(body.taxRate);
+  const items = parseItems(data.items);
+  const taxRate = data.taxRate ?? 0;
   const totals = computeTotals(items, taxRate);
-  const status = QUOTE_STATUSES.find((s) => s === body.status) ?? "draft";
-  const number = await nextQuoteNumber();
+  const status = data.status ?? "draft";
 
   const [quote] = await db.transaction(async (tx) => {
+    const number = await nextQuoteNumber(tx);
     const [created] = await tx
       .insert(crmQuotes)
       .values({
         number,
-        clientId,
+        clientId: data.clientId,
         installationId,
-        title: typeof body.title === "string" ? body.title : null,
+        title: data.title ?? null,
         status,
         taxRate,
         ...totals,
-        validUntil:
-          typeof body.validUntil === "string" ? new Date(body.validUntil) : null,
-        notes: typeof body.notes === "string" ? body.notes : null,
+        validUntil: data.validUntil ? new Date(data.validUntil) : null,
+        notes: data.notes ?? null,
       })
       .returning();
     await tx

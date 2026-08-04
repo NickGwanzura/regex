@@ -15,6 +15,13 @@
       "when": 1785764511764,
       "tag": "0001_fancy_vance_astro",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785838421442,
+      "tag": "0002_superb_war_machine",
+      "breakpoints": true
     }
   ]
 }
