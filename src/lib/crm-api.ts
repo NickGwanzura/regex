@@ -31,10 +31,23 @@ export const nullable = (v: string | null | undefined): string | null =>
 
 // ---- Shared API shapes (mirrors the route handlers' JSON) ----
 
+export type Currency = "USD" | "ZWL";
+export const CURRENCIES: Currency[] = ["USD", "ZWL"];
+export const DEFAULT_CURRENCY: Currency = "USD";
+
+export interface LedgerTotals {
+  billed: number;
+  collected: number;
+  outstanding: number;
+  overdue: number;
+}
+
 export interface Stats {
   clients: number;
   activeInstallations: number;
   openQuotes: number;
+  usd: LedgerTotals;
+  zwl: LedgerTotals;
   billedTotal: number;
   collectedTotal: number;
   outstandingTotal: number;
@@ -81,6 +94,7 @@ export interface Installation {
   startDate: string | null;
   endDate: string | null;
   value: number;
+  currency: Currency;
   notes: string | null;
   createdAt: string;
 }
@@ -96,6 +110,7 @@ export interface Quote {
   subtotal: number;
   tax: number;
   total: number;
+  currency: Currency;
   validUntil: string | null;
   notes: string | null;
   clientName?: string;
@@ -111,8 +126,40 @@ export interface Invoice {
   total: number;
   paid: number;
   balance: number;
+  currency: Currency;
   issueDate: string;
   dueDate: string | null;
+  clientName?: string;
+}
+
+export type ExpenseCategory =
+  | "hardware"
+  | "labour"
+  | "software"
+  | "travel"
+  | "permits"
+  | "other";
+
+export const EXPENSE_CATEGORIES: ExpenseCategory[] = [
+  "hardware",
+  "labour",
+  "software",
+  "travel",
+  "permits",
+  "other",
+];
+
+export interface Expense {
+  id: string;
+  clientId: string;
+  installationId: string | null;
+  category: ExpenseCategory;
+  currency: Currency;
+  amount: number;
+  date: string;
+  description: string;
+  notes: string | null;
+  createdAt: string;
   clientName?: string;
 }
 
@@ -136,12 +183,10 @@ export const INSTALLATION_STATUSES = [
 
 // ---- Formatting helpers ----
 
-const CURRENCY = "GBP";
-
-export const money = (n: number) =>
+export const money = (n: number, currency: Currency = "USD") =>
   new Intl.NumberFormat(undefined, {
     style: "currency",
-    currency: CURRENCY,
+    currency,
   }).format(n);
 
 export const date = (iso: string | null | undefined) =>
@@ -159,6 +204,11 @@ const OVERRIDES: Record<string, string> = {
   firewall_security: "Firewall & security",
   managed_support: "Managed support",
   vpn: "VPN",
+  hardware: "Hardware",
+  labour: "Labour",
+  software: "Software",
+  travel: "Travel",
+  permits: "Permits",
   in_progress: "In progress",
   on_hold: "On hold",
   bank_transfer: "Bank transfer",

@@ -3,7 +3,7 @@ import "server-only";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -43,7 +43,12 @@ export async function recomputeInvoiceStatus(invoiceId: string): Promise<void> {
       paid: sql<number>`coalesce(sum(${crmPayments.amountCents})::int, 0)`,
     })
     .from(crmPayments)
-    .where(eq(crmPayments.invoiceId, invoiceId));
+    .where(
+      and(
+        eq(crmPayments.invoiceId, invoiceId),
+        eq(crmPayments.currency, invoice.currency),
+      ),
+    );
   const paid = agg?.paid ?? 0;
 
   let status: CrmInvoice["status"] = invoice.status;
@@ -122,6 +127,21 @@ export function toCents(dollars: number): number {
 
 export function dollars(cents: number): number {
   return Math.round(cents) / 100;
+}
+
+export type Currency = "USD" | "ZWL";
+export const CURRENCIES: readonly Currency[] = ["USD", "ZWL"] as const;
+export const DEFAULT_CURRENCY: Currency = "USD";
+
+/** Coerces a value to a supported currency, defaulting to USD. */
+export function resolveCurrency(value: unknown): Currency {
+  return value === "ZWL" ? "ZWL" : "USD";
+}
+
+/** Validates a currency when present (returns undefined if absent/invalid). */
+export function currencyOr(v: unknown): Currency | undefined {
+  const c = resolveCurrency(v);
+  return v === "ZWL" || v === "USD" ? c : undefined;
 }
 
 

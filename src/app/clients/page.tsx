@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import {
   Chip,
+  CrmLayout,
   CrmPageHead,
   Empty,
   ErrorBanner,
@@ -64,9 +65,9 @@ function Clients() {
   }, [load]);
 
   return (
-    <>
+    <CrmLayout>
       <CrmPageHead
-        eyebrow="Client portal"
+        eyebrow="Operations"
         title="Clients"
         lede="Search, filter and manage the accounts behind every installation."
       />
@@ -167,7 +168,7 @@ function Clients() {
           />
         </Modal>
       )}
-    </>
+    </CrmLayout>
   );
 }
 

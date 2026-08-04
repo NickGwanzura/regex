@@ -20,6 +20,7 @@ import {
   parseItems,
   readJson,
   requireAdmin,
+  resolveCurrency,
   wrap,
 } from "@/lib/crm";
 import type { DbTx, LineItem } from "@/lib/crm";
@@ -108,6 +109,7 @@ export const POST = wrap(async (req: NextRequest) => {
   let clientId = data.clientId;
   let installationId = data.installationId ?? undefined;
   let taxRate = data.taxRate ?? 0;
+  let currency = resolveCurrency(data.currency);
   let items: LineItem[];
 
   // Invoice created from an accepted quote copies the quote's items + tax.
@@ -121,6 +123,7 @@ export const POST = wrap(async (req: NextRequest) => {
     if (!clientId) clientId = quote.clientId;
     if (!installationId) installationId = quote.installationId ?? undefined;
     taxRate = quote.taxRate;
+    currency = quote.currency;
     if (data.items) {
       items = parseItems(data.items);
     } else {
@@ -175,6 +178,7 @@ export const POST = wrap(async (req: NextRequest) => {
         quoteId,
         status,
         taxRate,
+        currency,
         ...totals,
         issueDate,
         dueDate,

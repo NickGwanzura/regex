@@ -43,6 +43,9 @@ export const optionalDate = dateString.or(z.literal("")).nullable().optional();
 /** Money in dollars; non-negative. */
 export const dollars = z.number().finite().nonnegative();
 
+/** Currency code for a money record: USD (default) or ZWL. */
+export const currency = z.enum(["USD", "ZWL"]).default("USD");
+
 export const uuid = z.string().uuid("a valid id is required");
 
 export const taxRate = z.number().min(0).max(100).nullable().optional();
@@ -111,6 +114,15 @@ export const RECORD_KINDS = [
 
 export const RECORD_STATUSES = ["scheduled", "completed", "cancelled"] as const;
 
+export const EXPENSE_CATEGORIES = [
+  "hardware",
+  "labour",
+  "software",
+  "travel",
+  "permits",
+  "other",
+] as const;
+
 export const INVITE_ROLES = ["user", "admin"] as const;
 
 export const clientStatus = z.enum(CLIENT_STATUSES);
@@ -122,6 +134,7 @@ export const engagementModel = z.enum(ENGAGEMENT_MODELS);
 export const paymentMethod = z.enum(PAYMENT_METHODS);
 export const recordKind = z.enum(RECORD_KINDS);
 export const recordStatus = z.enum(RECORD_STATUSES);
+export const expenseCategory = z.enum(EXPENSE_CATEGORIES);
 export const inviteRole = z.enum(INVITE_ROLES);
 
 // ------------------------------ line items --------------------------------
@@ -173,6 +186,7 @@ export const createInstallation = z.object({
   startDate: optionalDate,
   endDate: optionalDate,
   value: dollars.nullable().optional(),
+  currency: currency.optional(),
   notes: optionalText,
 });
 export const updateInstallation = createInstallation.partial();
@@ -184,6 +198,7 @@ export const createQuote = z.object({
   status: quoteStatus.optional(),
   taxRate,
   items: lineItems,
+  currency: currency.optional(),
   validUntil: optionalDate,
   notes: optionalText,
 });
@@ -196,6 +211,7 @@ export const createInvoice = z.object({
   status: invoiceStatus.optional(),
   taxRate,
   items: optionalLineItems,
+  currency: currency.optional(),
   issueDate: optionalDate,
   dueDate: optionalDate,
   notes: optionalText,
@@ -205,6 +221,7 @@ export const updateInvoice = createInvoice.partial();
 export const createPayment = z.object({
   invoiceId: uuid,
   amount: z.number().positive("amount must be a positive number"),
+  currency: currency.optional(),
   method: paymentMethod.optional(),
   reference: optionalText,
   paidAt: optionalDate,
@@ -221,10 +238,29 @@ export const createServiceRecord = z.object({
   durationMinutes: z.number().int().nonnegative().nullable().optional(),
   durationHours: z.number().positive().nullable().optional(),
   cost: dollars.nullable().optional(),
+  currency: currency.optional(),
   status: recordStatus.optional(),
   notes: optionalText,
 });
 export const updateServiceRecord = createServiceRecord.partial();
+
+export const createExpense = z.object({
+  clientId: uuid,
+  installationId: uuid.nullable().optional(),
+  category: expenseCategory.optional(),
+  currency: currency.optional(),
+  amount: z.number().positive("amount must be a positive number"),
+  date: dateString,
+  description: z.string().trim().min(1, "description is required").max(500),
+  notes: optionalText,
+});
+export const updateExpense = createExpense
+  .partial()
+  .extend({
+    clientId: uuid.optional(),
+    installationId: uuid.nullable().optional(),
+    amount: z.number().positive("amount must be a positive number").optional(),
+  });
 
 export const createInvite = z.object({
   email: emailSchema,

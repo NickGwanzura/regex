@@ -10,6 +10,7 @@ import {
   readJson,
   recomputeInvoiceStatus,
   requireAdmin,
+  resolveCurrency,
   toCents,
   wrap,
 } from "@/lib/crm";
@@ -48,6 +49,8 @@ export const POST = wrap(async (req: NextRequest) => {
     throw new CrmError(400, "Cannot record a payment against a void invoice");
   }
 
+  // A payment is booked in its invoice's currency so the ledger stays consistent.
+  const currency = resolveCurrency(data.currency ?? invoice.currency);
   const amountCents = toCents(data.amount);
   const method = data.method ?? "bank_transfer";
 
@@ -56,6 +59,7 @@ export const POST = wrap(async (req: NextRequest) => {
     .values({
       invoiceId: data.invoiceId,
       amountCents,
+      currency,
       method,
       reference: data.reference ?? null,
       paidAt: data.paidAt ? new Date(data.paidAt) : new Date(),

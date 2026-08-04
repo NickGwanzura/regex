@@ -17,6 +17,7 @@ import {
   parseItems,
   readJson,
   requireAdmin,
+  resolveCurrency,
   serializeItems,
   wrap,
 } from "@/lib/crm";
@@ -96,6 +97,7 @@ export const PATCH = wrap(
       patch.validUntil = data.validUntil ? new Date(data.validUntil) : null;
     }
     if (data.notes !== undefined) patch.notes = data.notes ?? null;
+    if (data.currency !== undefined) patch.currency = resolveCurrency(data.currency);
 
     if (data.items) {
       const items = parseItems(data.items);

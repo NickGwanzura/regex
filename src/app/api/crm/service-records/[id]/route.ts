@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { crmInstallations, crmServiceRecords } from "@/lib/db/schema";
-import { CrmError, dollars, ok, readJson, requireAdmin, toCents, wrap } from "@/lib/crm";
+import { CrmError, dollars, ok, readJson, requireAdmin, resolveCurrency, toCents, wrap } from "@/lib/crm";
 import { firstIssue, updateServiceRecord } from "@/lib/validation";
 
 export const GET = wrap(
@@ -60,6 +60,7 @@ export const PATCH = wrap(
     if (data.cost !== undefined) {
       patch.costCents = toCents(data.cost ?? 0);
     }
+    if (data.currency !== undefined) patch.currency = resolveCurrency(data.currency);
     if (data.notes !== undefined) patch.notes = data.notes ?? null;
     if (data.installationId !== undefined) {
       if (data.installationId) {

@@ -3,7 +3,7 @@ import { and, asc, eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { crmClients, crmInstallations, crmServiceRecords } from "@/lib/db/schema";
-import { CrmError, dollars, ok, readJson, requireAdmin, toCents, wrap } from "@/lib/crm";
+import { CrmError, dollars, ok, readJson, requireAdmin, resolveCurrency, toCents, wrap } from "@/lib/crm";
 import {
   RECORD_KINDS,
   RECORD_STATUSES,
@@ -83,6 +83,7 @@ export const POST = wrap(async (req: NextRequest) => {
       serviceDate: new Date(data.serviceDate),
       durationMinutes,
       costCents: toCents(data.cost ?? 0),
+      currency: resolveCurrency(data.currency),
       status: data.status ?? "scheduled",
       notes: data.notes ?? null,
     })

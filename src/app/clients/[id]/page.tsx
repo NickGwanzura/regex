@@ -4,10 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 
+import { AddExpense } from "@/components/expense-form";
 import {
   CancelButton,
   Chip,
-  CrmTabs,
+  CrmLayout,
   Empty,
   ErrorBanner,
   Field,
@@ -17,6 +18,7 @@ import {
 import { RequireAdmin } from "@/components/require-auth";
 import {
   CLIENT_STATUSES,
+  CURRENCIES,
   ENGAGEMENT_MODELS,
   INSTALLATION_STATUSES,
   SERVICE_TYPES,
@@ -29,6 +31,7 @@ import {
   remove,
   type Client,
   type Contact,
+  type Expense,
   type Installation,
   type Invoice,
   type Quote,
@@ -51,6 +54,7 @@ function ClientDetail() {
   const [installations, setInstallations] = useState<Installation[]>([]);
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -60,15 +64,19 @@ function ClientDetail() {
     setError(null);
     try {
       const [d, q, inv] = await Promise.all([
-        get<{ client: Client; contacts: Contact[]; installations: Installation[] }>(
-          `/api/crm/clients/${id}`,
-        ),
+        get<{
+          client: Client;
+          contacts: Contact[];
+          installations: Installation[];
+          expenses: Expense[];
+        }>(`/api/crm/clients/${id}`),
         get<{ quotes: Quote[] }>(`/api/crm/quotes?clientId=${id}`),
         get<{ invoices: Invoice[] }>(`/api/crm/invoices?clientId=${id}`),
       ]);
       setClient(d.client);
       setContacts(d.contacts);
       setInstallations(d.installations);
+      setExpenses(d.expenses);
       setQuotes(q.quotes);
       setInvoices(inv.invoices);
     } catch (e) {
@@ -111,7 +119,19 @@ function ClientDetail() {
     );
   }
 
-  const outstanding = invoices.reduce((acc, i) => acc + i.balance, 0);
+  const outstandingByCurrency = CURRENCIES.reduce((acc, c) => {
+    acc[c] = invoices
+      .filter((i) => i.currency === c)
+      .reduce((s, i) => s + i.balance, 0);
+    return acc;
+  }, {} as Record<"USD" | "ZWL", number>);
+
+  const expensesByCurrency = CURRENCIES.reduce((acc, c) => {
+    acc[c] = expenses
+      .filter((e) => e.currency === c)
+      .reduce((s, e) => s + e.amount, 0);
+    return acc;
+  }, {} as Record<"USD" | "ZWL", number>);
 
   return (
     <CrmShell>
@@ -181,7 +201,9 @@ function ClientDetail() {
 
           <Panel
             action={
-              <span className="crmPanelCount">{money(outstanding)} outstanding</span>
+              <span className="crmPanelCount">
+                {CURRENCIES.map((c) => `${money(outstandingByCurrency[c], c)} ${c}`).join(" · ")} outstanding
+              </span>
             }
             title={`Billing · ${invoices.length} invoice${invoices.length === 1 ? "" : "s"}`}
           >
@@ -195,7 +217,7 @@ function ClientDetail() {
                   </span>
                   <span className="crmListRight">
                     <Chip value={inv.status} />
-                    <em>{money(inv.total)}</em>
+                    <em>{money(inv.total, inv.currency)} {inv.currency}</em>
                   </span>
                 </li>
               ))}
@@ -214,13 +236,22 @@ function ClientDetail() {
                       </span>
                       <span className="crmListRight">
                         <Chip value={q.status} />
-                        <em>{money(q.total)}</em>
+                        <em>{money(q.total, q.currency)} {q.currency}</em>
                       </span>
                     </li>
                   ))}
                 </ul>
               </details>
             ) : null}
+          </Panel>
+
+          <Panel
+            action={
+              <span className="crmPanelCount">{expenses.length} expense{expenses.length === 1 ? "" : "s"}</span>
+            }
+            title={`Expenses · ${money(expensesByCurrency.USD, "USD")} USD / ${money(expensesByCurrency.ZWL, "ZWL")} ZWL`}
+          >
+            <ExpensesList clientId={client.id} expenses={expenses} onChanged={load} installations={installations} />
           </Panel>
         </div>
 
@@ -236,6 +267,7 @@ function ClientDetail() {
           <Panel title={`Installations · ${installations.length}`}>
             <InstallationsList
               clientId={client.id}
+              expenses={expenses}
               installations={installations}
               onChanged={load}
             />
@@ -260,12 +292,13 @@ function ClientDetail() {
 
 function CrmShell({ children }: { children: React.ReactNode }) {
   return (
-    <section className="pageHead crmPageHead crmDetail">
-      <div className="wrap">
-        <CrmTabs />
-        <div className="crmDetailBody">{children}</div>
-      </div>
-    </section>
+    <CrmLayout>
+      <section className="pageHead crmPageHead crmDetail">
+        <div className="wrap">
+          <div className="crmDetailBody">{children}</div>
+        </div>
+      </section>
+    </CrmLayout>
   );
 }
 
@@ -400,10 +433,12 @@ function ContactsList({
 
 function InstallationsList({
   clientId,
+  expenses,
   installations,
   onChanged,
 }: {
   clientId: string;
+  expenses: Expense[];
   installations: Installation[];
   onChanged: () => void;
 }) {
@@ -416,6 +451,7 @@ function InstallationsList({
     status: "lead",
     siteAddress: "",
     value: "",
+    currency: "USD" as "USD" | "ZWL",
     startDate: "",
     endDate: "",
   });
@@ -437,6 +473,7 @@ function InstallationsList({
         status: form.status,
         siteAddress: form.siteAddress || null,
         value: form.value ? Number(form.value) : 0,
+        currency: form.currency,
         startDate: form.startDate || null,
         endDate: form.endDate || null,
       });
@@ -447,6 +484,7 @@ function InstallationsList({
         status: "lead",
         siteAddress: "",
         value: "",
+        currency: "USD",
         startDate: "",
         endDate: "",
       });
@@ -478,8 +516,9 @@ function InstallationsList({
               <span className="crmListMain">
                 <b>{inst.name}</b>
                 <small>
-                  {inst.siteAddress || "No site address"} · {money(inst.value)}
+                  {inst.siteAddress || "No site address"} · {money(inst.value, inst.currency)} {inst.currency}
                 </small>
+                <MarginLine installation={inst} expenses={expenses} />
               </span>
               <span className="crmListRight">
                 <Chip value={inst.status} />
@@ -533,8 +572,17 @@ function InstallationsList({
               <Field label="Site address">
                 <input value={form.siteAddress} onChange={set("siteAddress")} placeholder="Street, city" />
               </Field>
-              <Field label="Value (£)">
+              <Field label="Value">
                 <input type="number" min="0" step="0.01" value={form.value} onChange={set("value")} placeholder="0.00" />
+              </Field>
+              <Field label="Currency">
+                <select value={form.currency} onChange={set("currency")}>
+                  {CURRENCIES.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
               </Field>
               <Field label="Start date">
                 <input type="date" value={form.startDate} onChange={set("startDate")} />
@@ -555,6 +603,127 @@ function InstallationsList({
           <button className="btn ghost small" onClick={() => setAdding(true)} type="button">
             + Add installation
           </button>
+        )}
+      </div>
+    </>
+  );
+}
+
+// ---- Margin (project revenue vs linked expenses) ----
+
+function MarginLine({
+  installation,
+  expenses,
+}: {
+  installation: Installation;
+  expenses: Expense[];
+}) {
+  if (!installation.value) return null;
+  const linked = expenses.filter(
+    (e) =>
+      e.installationId === installation.id &&
+      e.currency === installation.currency,
+  );
+  const spend = linked.reduce((s, e) => s + e.amount, 0);
+  const margin = installation.value - spend;
+  const tone = margin >= 0 ? "crmMarginPos" : "crmMarginNeg";
+  return (
+    <span className={`crmMargin ${tone}`}>
+      {money(margin, installation.currency)} margin after {linked.length} expense
+      {linked.length === 1 ? "" : "s"}
+    </span>
+  );
+}
+
+// ---- Expenses ----
+
+function ExpensesList({
+  clientId,
+  expenses,
+  installations,
+  onChanged,
+}: {
+  clientId: string;
+  expenses: Expense[];
+  installations: Installation[];
+  onChanged: () => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [presetInstallation, setPresetInstallation] = useState<string | undefined>(undefined);
+
+  async function del(ex: Expense) {
+    if (!window.confirm(`Delete expense “${ex.description}”?`)) return;
+    try {
+      setError(null);
+      await remove(`/api/crm/expenses/${ex.id}`);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete expense");
+    }
+  }
+
+  return (
+    <>
+      {expenses.length === 0 ? <Empty message="No expenses tracked for this client yet." /> : null}
+      <ul className="crmList">
+        {expenses.map((ex) => (
+          <li className="crmListRow" key={ex.id}>
+            <span className="crmListMain">
+              <b>{ex.description}</b>
+              <small>
+                {ex.category.replace("_", " ")}
+                {ex.installationId ? " · project expense" : ""}
+              </small>
+            </span>
+            <span className="crmListRight">
+              <em>{money(ex.amount, ex.currency)} {ex.currency}</em>
+              <button
+                aria-label={`Delete ${ex.description}`}
+                className="crmIconBtn"
+                onClick={() => del(ex)}
+                type="button"
+              >
+                ✕
+              </button>
+            </span>
+          </li>
+        ))}
+      </ul>
+      {installations.length > 0 ? (
+        <label className="crmField" style={{ margin: "14px 20px" }}>
+          <span>Link to installation (optional)</span>
+          <select
+            value={presetInstallation ?? ""}
+            onChange={(e) => setPresetInstallation(e.target.value || undefined)}
+          >
+            <option value="">No installation</option>
+            {installations.map((i) => (
+              <option key={i.id} value={i.id}>
+                {i.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+      <div className="crmInlineForm">
+        {adding ? (
+          <AddExpense
+            onDone={() => {
+              setAdding(false);
+              setPresetInstallation(undefined);
+              onChanged();
+            }}
+            presetClientId={clientId}
+            presetInstallationId={presetInstallation}
+          />
+        ) : (
+          <>
+            <button className="btn ghost small" onClick={() => setAdding(true)} type="button">
+              + Add expense
+            </button>
+            {error && <span className="crmListRow"><ErrorBanner message={error} /></span>}
+          </>
         )}
       </div>
     </>

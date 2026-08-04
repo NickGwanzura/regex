@@ -17,6 +17,7 @@ import {
   parseItems,
   readJson,
   requireAdmin,
+  resolveCurrency,
   wrap,
 } from "@/lib/crm";
 import type { DbTx } from "@/lib/crm";
@@ -103,6 +104,7 @@ export const POST = wrap(async (req: NextRequest) => {
 
   const items = parseItems(data.items);
   const taxRate = data.taxRate ?? 0;
+  const currency = resolveCurrency(data.currency);
   const totals = computeTotals(items, taxRate);
   const status = data.status ?? "draft";
 
@@ -117,6 +119,7 @@ export const POST = wrap(async (req: NextRequest) => {
         title: data.title ?? null,
         status,
         taxRate,
+        currency,
         ...totals,
         validUntil: data.validUntil ? new Date(data.validUntil) : null,
         notes: data.notes ?? null,

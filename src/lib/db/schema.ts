@@ -85,6 +85,17 @@ export const accountRelations = relations(account, ({ one }) => ({
 // ---------------------------------------------------------------------------
 // Money is stored as integer cents to keep arithmetic exact.
 
+export const currencyEnum = pgEnum("currency", ["USD", "ZWL"]);
+
+export const expenseCategoryEnum = pgEnum("expense_category", [
+  "hardware",
+  "labour",
+  "software",
+  "travel",
+  "permits",
+  "other",
+]);
+
 export const serviceTypeEnum = pgEnum("service_type", [
   "wireless_rf",
   "structured_cabling",
@@ -242,6 +253,7 @@ export const crmInstallations = pgTable("crm_installations", {
   startDate: timestamp("startDate"),
   endDate: timestamp("endDate"),
   valueCents: integer("valueCents").default(0).notNull(),
+  currency: currencyEnum("currency").default("USD").notNull(),
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
@@ -265,6 +277,7 @@ export const crmQuotes = pgTable("crm_quotes", {
   subtotalCents: integer("subtotalCents").default(0).notNull(),
   taxCents: integer("taxCents").default(0).notNull(),
   totalCents: integer("totalCents").default(0).notNull(),
+  currency: currencyEnum("currency").default("USD").notNull(),
   validUntil: timestamp("validUntil"),
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -301,6 +314,7 @@ export const crmInvoices = pgTable("crm_invoices", {
   subtotalCents: integer("subtotalCents").default(0).notNull(),
   taxCents: integer("taxCents").default(0).notNull(),
   totalCents: integer("totalCents").default(0).notNull(),
+  currency: currencyEnum("currency").default("USD").notNull(),
   issueDate: timestamp("issueDate").defaultNow().notNull(),
   dueDate: timestamp("dueDate"),
   paidAt: timestamp("paidAt"),
@@ -325,6 +339,7 @@ export const crmPayments = pgTable("crm_payments", {
     .notNull()
     .references(() => crmInvoices.id, { onDelete: "restrict" }),
   amountCents: integer("amountCents").notNull(),
+  currency: currencyEnum("currency").default("USD").notNull(),
   method: paymentMethodEnum("method").default("bank_transfer").notNull(),
   reference: text("reference"),
   paidAt: timestamp("paidAt").defaultNow().notNull(),
@@ -349,7 +364,29 @@ export const crmServiceRecords = pgTable("crm_service_records", {
   serviceDate: timestamp("serviceDate").notNull(),
   durationMinutes: integer("durationMinutes"),
   costCents: integer("costCents").default(0).notNull(),
+  currency: currencyEnum("currency").default("USD").notNull(),
   status: recordStatusEnum("status").default("scheduled").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+
+// ---- Expenses (project-linked) ----
+
+export const crmExpenses = pgTable("crm_expenses", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  clientId: uuid("clientId")
+    .notNull()
+    .references(() => crmClients.id, { onDelete: "restrict" }),
+  installationId: uuid("installationId").references(
+    () => crmInstallations.id,
+    { onDelete: "set null" },
+  ),
+  category: expenseCategoryEnum("category").default("other").notNull(),
+  currency: currencyEnum("currency").default("USD").notNull(),
+  amountCents: integer("amountCents").notNull(),
+  date: timestamp("date").notNull(),
+  description: text("description").notNull(),
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
@@ -366,3 +403,4 @@ export type CrmInvoice = typeof crmInvoices.$inferSelect;
 export type CrmInvoiceItem = typeof crmInvoiceItems.$inferSelect;
 export type CrmPayment = typeof crmPayments.$inferSelect;
 export type CrmServiceRecord = typeof crmServiceRecords.$inferSelect;
+export type CrmExpense = typeof crmExpenses.$inferSelect;

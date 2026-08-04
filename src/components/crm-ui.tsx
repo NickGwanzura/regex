@@ -6,30 +6,67 @@ import { useEffect, useRef, type ReactNode } from "react";
 
 import { chipTone, label } from "@/lib/crm-api";
 
+const CRM_TABS = [
+  ["/dashboard", "Dashboard", "◆"],
+  ["/clients", "Clients", "◈"],
+  ["/expenses", "Expenses", "⌬"],
+] as const;
+
+function isCurrent(path: string, href: string): boolean {
+  if (href === "/clients") return path.startsWith("/clients");
+  return path === href;
+}
+
+/** Horizontal tab bar (used on mobile / inside the page head). */
 export function CrmTabs() {
   const path = usePathname();
-  const tabs = [
-    ["/dashboard", "Dashboard"],
-    ["/clients", "Clients"],
-  ] as const;
   return (
     <nav className="crmTabs" aria-label="CRM sections">
-      {tabs.map(([href, text]) => {
-        const current =
-          href === "/clients"
-            ? path.startsWith("/clients")
-            : path === href;
-        return (
-          <Link
-            aria-current={current ? "page" : undefined}
-            href={href}
-            key={href}
-          >
-            {text}
-          </Link>
-        );
-      })}
+      {CRM_TABS.map(([href, text]) => (
+        <Link
+          aria-current={isCurrent(path, href) ? "page" : undefined}
+          href={href}
+          key={href}
+        >
+          {text}
+        </Link>
+      ))}
     </nav>
+  );
+}
+
+/**
+ * App-wide CRM shell: a persistent left sidebar with the account/nav plus the
+ * page content in a main column. On narrow screens the sidebar collapses into
+ * the horizontal tab bar (see globals.css).
+ */
+export function CrmLayout({ children }: { children: ReactNode }) {
+  const path = usePathname();
+  const sections = [
+    { label: "Overview", href: "/dashboard", current: path === "/dashboard", icon: "◆" },
+    { label: "Clients", href: "/clients", current: path.startsWith("/clients"), icon: "◈" },
+    { label: "Expenses", href: "/expenses", current: path.startsWith("/expenses"), icon: "⌬" },
+  ];
+  return (
+    <div className="crmApp">
+      <aside className="crmSidebar" aria-label="CRM navigation">
+        <div className="crmSidebarBrand" aria-hidden="true">◆</div>
+        <nav className="crmSidebarNav">
+          {sections.map((s) => (
+            <Link
+              aria-current={s.current ? "page" : undefined}
+              className={`crmSidebarLink${s.current ? " current" : ""}`}
+              href={s.href}
+              key={s.href}
+            >
+              <span className="crmSidebarIcon" aria-hidden="true">{s.icon}</span>
+              <span>{s.label}</span>
+            </Link>
+          ))}
+        </nav>
+      </aside>
+      <div className="crmAppMain">{children}</div>
+    </div>
   );
 }
 

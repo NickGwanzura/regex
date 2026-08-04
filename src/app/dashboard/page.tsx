@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import {
   Chip,
+  CrmLayout,
   CrmPageHead,
   Empty,
   ErrorBanner,
@@ -16,7 +17,7 @@ import {
   get,
   money,
   type Client,
-  type Invoice,
+  type Expense,
   type Stats,
 } from "@/lib/crm-api";
 
@@ -31,7 +32,7 @@ export default function DashboardPage() {
 function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [clients, setClients] = useState<Client[]>([]);
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -39,14 +40,14 @@ function Dashboard() {
     setLoading(true);
     setError(null);
     try {
-      const [s, c, inv] = await Promise.all([
+      const [s, c, ex] = await Promise.all([
         get<{ stats: Stats }>("/api/crm/stats"),
         get<{ clients: Client[] }>("/api/crm/clients"),
-        get<{ invoices: Invoice[] }>("/api/crm/invoices"),
+        get<{ expenses: Expense[] }>("/api/crm/expenses"),
       ]);
       setStats(s.stats);
       setClients(c.clients.slice(0, 6));
-      setInvoices(inv.invoices.slice(0, 6));
+      setExpenses(ex.expenses.slice(0, 6));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load dashboard");
     } finally {
@@ -59,11 +60,11 @@ function Dashboard() {
   }, [load]);
 
   return (
-    <>
+    <CrmLayout>
       <CrmPageHead
-        eyebrow="Client portal"
+        eyebrow="Operations"
         title="Dashboard"
-        lede="A live view of clients, installations and cash flow."
+        lede="A live view of clients, installations, cash flow and expenses."
       />
       <section className="section crmSection">
         <div className="wrap">
@@ -78,32 +79,34 @@ function Dashboard() {
           ) : null}
 
           {stats && (
-            <div className="crmStatGrid">
-              <StatCard label="Clients" value={String(stats.clients)} />
-              <StatCard
-                label="Active installations"
-                value={String(stats.activeInstallations)}
-              />
-              <StatCard label="Open quotes" value={String(stats.openQuotes)} />
-              <StatCard label="Billed" value={money(stats.billedTotal)} />
-              <StatCard label="Collected" value={money(stats.collectedTotal)} />
-              <StatCard
-                label="Outstanding"
-                value={money(stats.outstandingTotal)}
-              />
-              <StatCard
-                label="Overdue"
-                value={money(stats.overdueTotal)}
-                note={`${stats.overdueInvoiceCount} invoice${
-                  stats.overdueInvoiceCount === 1 ? "" : "s"
-                }`}
-              />
-              <StatCard
-                label="Service records"
-                value={String(stats.upcomingServiceRecords)}
-                note="next 30 days"
-              />
-            </div>
+            <>
+              <div className="crmStatGrid">
+                <StatCard label="Clients" value={String(stats.clients)} />
+                <StatCard
+                  label="Active installations"
+                  value={String(stats.activeInstallations)}
+                />
+                <StatCard label="Open quotes" value={String(stats.openQuotes)} />
+                <StatCard
+                  label="Service records"
+                  value={String(stats.upcomingServiceRecords)}
+                  note="next 30 days"
+                />
+              </div>
+
+              <div className="crmLedgerGrid">
+                <LedgerSection
+                  currency="USD"
+                  overdueCount={stats.overdueInvoiceCount}
+                  totals={stats.usd}
+                />
+                <LedgerSection
+                  currency="ZWL"
+                  overdueCount={stats.overdueInvoiceCount}
+                  totals={stats.zwl}
+                />
+              </div>
+            </>
           )}
 
           <div className="crmSplit">
@@ -136,20 +139,26 @@ function Dashboard() {
               </ul>
             </Panel>
 
-            <Panel title="Latest invoices">
-              {!loading && invoices.length === 0 ? (
-                <Empty message="No invoices yet." />
+            <Panel
+              action={
+                <Link className="linkArrow" href="/expenses">
+                  All expenses <span>→</span>
+                </Link>
+              }
+              title="Recent expenses"
+            >
+              {!loading && expenses.length === 0 ? (
+                <Empty message="No expenses tracked yet." />
               ) : null}
               <ul className="crmList">
-                {invoices.map((inv) => (
-                  <li className="crmListRow" key={inv.id}>
+                {expenses.map((ex) => (
+                  <li className="crmListRow" key={ex.id}>
                     <span className="crmListMain">
-                      <b>{inv.number}</b>
-                      <small>{inv.clientName}</small>
+                      <b>{ex.description}</b>
+                      <small>{ex.clientName}</small>
                     </span>
                     <span className="crmListRight">
-                      <Chip value={inv.status} />
-                      <em>{money(inv.total)}</em>
+                      <em>{money(ex.amount, ex.currency)}</em>
                     </span>
                   </li>
                 ))}
@@ -158,6 +167,35 @@ function Dashboard() {
           </div>
         </div>
       </section>
-    </>
+    </CrmLayout>
+  );
+}
+
+function LedgerSection({
+  currency,
+  totals,
+  overdueCount,
+}: {
+  currency: "USD" | "ZWL";
+  totals: { billed: number; collected: number; outstanding: number; overdue: number };
+  overdueCount: number;
+}) {
+  return (
+    <div className="crmLedger">
+      <div className="crmLedgerHead">
+        <span className="crmAvatar">{currency}</span>
+        <h3>{currency} ledger</h3>
+      </div>
+      <div className="crmLedgerGrid">
+        <StatCard label="Billed" value={money(totals.billed, currency)} />
+        <StatCard label="Collected" value={money(totals.collected, currency)} />
+        <StatCard label="Outstanding" value={money(totals.outstanding, currency)} />
+        <StatCard
+          label="Overdue"
+          value={money(totals.overdue, currency)}
+          note={`${overdueCount} invoice${overdueCount === 1 ? "" : "s"}`}
+        />
+      </div>
+    </div>
   );
 }

@@ -4,12 +4,13 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import {
   crmClients,
+  crmExpenses,
   crmInstallations,
   crmInvoices,
   crmQuotes,
   crmServiceRecords,
 } from "@/lib/db/schema";
-import { CrmError, dollars, ok, readJson, requireAdmin, toCents, wrap } from "@/lib/crm";
+import { CrmError, dollars, ok, readJson, requireAdmin, resolveCurrency, toCents, wrap } from "@/lib/crm";
 import { firstIssue, updateInstallation } from "@/lib/validation";
 import type { CrmInstallation } from "@/lib/db/schema";
 
@@ -75,6 +76,7 @@ export const PATCH = wrap(
     if (data.value !== undefined) {
       patch.valueCents = toCents(data.value ?? 0);
     }
+    if (data.currency !== undefined) patch.currency = resolveCurrency(data.currency);
     if (data.notes !== undefined) patch.notes = data.notes ?? null;
 
     const [installation] = await db
@@ -99,7 +101,7 @@ export const DELETE = wrap(
       .limit(1);
     if (!existing) throw new CrmError(404, "Installation not found");
 
-    const [quotes, invoices, records] = await Promise.all([
+    const [quotes, invoices, records, expenses] = await Promise.all([
       db
         .select({ id: crmQuotes.id })
         .from(crmQuotes)
@@ -115,12 +117,17 @@ export const DELETE = wrap(
         .from(crmServiceRecords)
         .where(eq(crmServiceRecords.installationId, id))
         .limit(1),
+      db
+        .select({ id: crmExpenses.id })
+        .from(crmExpenses)
+        .where(eq(crmExpenses.installationId, id))
+        .limit(1),
     ]);
 
-    if (quotes.length > 0 || invoices.length > 0 || records.length > 0) {
+    if (quotes.length > 0 || invoices.length > 0 || records.length > 0 || expenses.length > 0) {
       throw new CrmError(
         409,
-        "Cannot delete an installation with related quotes, invoices or service records.",
+        "Cannot delete an installation with related quotes, invoices, service records or expenses.",
       );
     }
 

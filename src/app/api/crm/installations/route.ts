@@ -11,6 +11,7 @@ import {
   ok,
   readJson,
   requireAdmin,
+  resolveCurrency,
   toCents,
   wrap,
 } from "@/lib/crm";
@@ -71,6 +72,7 @@ export const POST = wrap(async (req: NextRequest) => {
       startDate: data.startDate ? new Date(data.startDate) : null,
       endDate: data.endDate ? new Date(data.endDate) : null,
       valueCents: toCents(data.value ?? 0),
+      currency: resolveCurrency(data.currency),
       notes: data.notes ?? null,
     })
     .returning();

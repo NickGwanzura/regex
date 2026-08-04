@@ -5,12 +5,13 @@ import { db } from "@/lib/db";
 import {
   crmClients,
   crmContacts,
+  crmExpenses,
   crmInstallations,
   crmInvoices,
   crmQuotes,
   crmServiceRecords,
 } from "@/lib/db/schema";
-import { CLIENT_STATUSES, CrmError, ok, readJson, requireAdmin, wrap } from "@/lib/crm";
+import { CLIENT_STATUSES, CrmError, dollars, ok, readJson, requireAdmin, wrap } from "@/lib/crm";
 import { firstIssue, updateClient } from "@/lib/validation";
 
 export const GET = wrap(
@@ -25,7 +26,7 @@ export const GET = wrap(
       .limit(1);
     if (!row) throw new CrmError(404, "Client not found");
 
-    const [contacts, installations] = await Promise.all([
+    const [contacts, installations, expenses] = await Promise.all([
       db
         .select()
         .from(crmContacts)
@@ -36,9 +37,19 @@ export const GET = wrap(
         .from(crmInstallations)
         .where(eq(crmInstallations.clientId, id))
         .orderBy(desc(crmInstallations.createdAt)),
+      db
+        .select()
+        .from(crmExpenses)
+        .where(eq(crmExpenses.clientId, id))
+        .orderBy(desc(crmExpenses.date), desc(crmExpenses.createdAt)),
     ]);
 
-    return ok({ client: row, contacts, installations });
+    return ok({
+      client: row,
+      contacts,
+      installations,
+      expenses: expenses.map((e) => ({ ...e, amount: dollars(e.amountCents) })),
+    });
   },
 );
 
@@ -95,7 +106,7 @@ export const DELETE = wrap(
       .limit(1);
     if (!existing) throw new CrmError(404, "Client not found");
 
-    const [installations, quotes, invoices, records] = await Promise.all([
+    const [installations, quotes, invoices, records, expenses] = await Promise.all([
       db
         .select({ id: crmInstallations.id })
         .from(crmInstallations)
@@ -116,17 +127,23 @@ export const DELETE = wrap(
         .from(crmServiceRecords)
         .where(eq(crmServiceRecords.clientId, id))
         .limit(1),
+      db
+        .select({ id: crmExpenses.id })
+        .from(crmExpenses)
+        .where(eq(crmExpenses.clientId, id))
+        .limit(1),
     ]);
 
     if (
       installations.length > 0 ||
       quotes.length > 0 ||
       invoices.length > 0 ||
-      records.length > 0
+      records.length > 0 ||
+      expenses.length > 0
     ) {
       throw new CrmError(
         409,
-        "Cannot delete a client with related installations, quotes, invoices or service records. Mark it inactive instead.",
+        "Cannot delete a client with related installations, quotes, invoices, service records or expenses. Mark it inactive instead.",
       );
     }
 
