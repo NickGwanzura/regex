@@ -39,3 +39,4 @@
 .crmDetail .crmSplit{margin-top:0}
 @media(max-width:860px){.crmStatGrid{grid-template-columns:repeat(2,1fr)}.crmSplit{grid-template-columns:1fr}.crmToolbarCta{margin-left:0}}
 @media(max-width:560px){.crmStatGrid,.crmGrid,.crmGrid.two{grid-template-columns:1fr}.crmTable th:nth-child(3),.crmTable td:nth-child(3),.crmTable th:nth-child(4),.crmTable td:nth-child(4){display:none}}
+.appLoading{min-height:60vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:var(--muted)}.appLoading img{animation:appPulse 1.1s var(--ease) infinite;filter:drop-shadow(0 6px 18px #0a7c5026)}.appLoading span{font:11px var(--font-mono);letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}@keyframes appPulse{0%,100%{transform:scale(.92);opacity:.75}50%{transform:scale(1);opacity:1}}
