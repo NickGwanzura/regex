@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
 
+import { hashPassword } from "@better-auth/utils/password";
 import { sql } from "drizzle-orm";
 
 import { db } from "@/lib/db";
-import { session, user } from "@/lib/db/schema";
+import { account, session, user } from "@/lib/db/schema";
 
 // ---------------------------------------------------------------------------
 // Route invocation
@@ -135,6 +136,57 @@ export async function adminToken(): Promise<string> {
 export async function userToken(): Promise<string> {
   const u = await createUser("user");
   return createSessionFor(u.id);
+}
+
+// ---------------------------------------------------------------------------
+// Credential-based users (for smoke-testing the real login endpoint)
+// ---------------------------------------------------------------------------
+
+export interface CredentialUser {
+  userId: string;
+  email: string;
+  password: string;
+}
+
+/**
+ * Creates a user + credential account that Better Auth's sign-in endpoint can
+ * authenticate against (providerId 'credential', password hashed exactly like
+ * the production admin seed). Returns the plaintext password so tests can send
+ * it to /sign-in/email.
+ */
+export async function createCredentialUser(
+  role: "admin" | "user" = "admin",
+  overrides: { email?: string; password?: string } = {},
+): Promise<CredentialUser> {
+  const password = overrides.password ?? "CorrectHorseBatteryStaple1!";
+  const email = (overrides.email ?? `login-${randomUUID()}@test.local`).trim().toLowerCase();
+  const passwordHash = await hashPassword(password);
+
+  const [row] = await db
+    .insert(user)
+    .values({
+      id: randomUUID(),
+      name: "Login Test User",
+      email,
+      emailVerified: true,
+      image: null,
+      role,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .returning();
+
+  await db.insert(account).values({
+    id: randomUUID(),
+    accountId: row.id,
+    providerId: "credential",
+    userId: row.id,
+    password: passwordHash,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  });
+
+  return { userId: row.id, email, password };
 }
 
 // ---------------------------------------------------------------------------
